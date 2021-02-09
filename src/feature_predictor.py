@@ -2,6 +2,7 @@
 import numpy
 from src import db_connector
 from src.constants import signal_features_names
+from sklearn.model_selection import train_test_split
 
 
 def get_features_data(path):
@@ -32,5 +33,24 @@ if __name__ == '__main__':
 
     signal_features_indices = [features_names.index(feature)-4 for feature in signal_features_names]
     signal_features = features[:, numpy.array(signal_features_indices)]
+
+    # impute column-wise with median
+    for i in range(signal_features.shape[1]):
+        signal_features[numpy.where(signal_features[:, i] == -1), i] = numpy.median(signal_features[:, i])
+
+    # fit for each feature
+    for i in range(signal_features.shape[1]):
+
+        X = signal_features[:, ~i]
+        y = signal_features[:, i]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+        # TODO:
+        #  - scale,
+        #  - select features,
+        #  - cross validate
+
+
 
 
