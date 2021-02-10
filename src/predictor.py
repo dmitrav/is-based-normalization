@@ -112,14 +112,14 @@ def run_predictor(save_to):
     # fit every feature
     for i in tqdm(range(signal_features.shape[1])):
 
+        X = numpy.delete(signal_features, i, axis=1)
+        y = signal_features[:, i]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=RANDOM_STATE)
+
         feature_preds = []
         # try every model
         for name in tqdm(models_names):
-
-            X = numpy.delete(signal_features, i, axis=1)
-            y = signal_features[:, i]
-
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=RANDOM_STATE)
 
             pipeline = Pipeline([
                 ('scaler', MinMaxScaler()),
@@ -137,13 +137,13 @@ def run_predictor(save_to):
             print("Median target value:", numpy.median(y))
             print("Relative error: {}%".format(relative_error_percent ))
             print("Parameters:", grid.best_params_)
-            print(int(time.time() - start), 'sec elapsed\n')
+            print(int(time.time() - start), 'seconds elapsed\n')
 
             feature_preds.append(relative_error_percent)
 
         results.append(feature_preds)
 
-    results = pandas.DataFrame(results, columns=signal_features_names, index=models_names)
+    results = pandas.DataFrame(results, columns=models_names, index=signal_features_names).T
     results.to_csv(save_to + 'grid_search_results.csv')
 
 
