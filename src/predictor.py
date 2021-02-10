@@ -1,5 +1,6 @@
 
-import numpy, sys, warnings, os, time
+import numpy, sys, warnings, os, time, pandas
+from tqdm import tqdm
 from src import db_connector
 from src.constants import signal_features_names
 from sklearn.model_selection import train_test_split
@@ -7,7 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.feature_selection import SelectPercentile, f_regression, mutual_info_regression
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
-from sklearn.linear_model import ElasticNet
+from sklearn.linear_model import ElasticNet, Lasso, Ridge, BayesianRidge, Lars
 
 
 def get_features_data(path):
@@ -31,7 +32,66 @@ def get_features_data(path):
     return meta, features, colnames
 
 
-def run_predictor():
+def get_models_and_parameters(random_state):
+
+    models = {
+        'elastic': ElasticNet(max_iter=5000, random_state=random_state),
+        'lasso': Lasso(max_iter=5000, random_state=random_state),
+        'ridge': Ridge(max_iter=5000, random_state=random_state),
+        'bayes_ridge': BayesianRidge(n_iter=2000),
+        'lars': Lars(random_state=random_state)
+    }
+
+    parameters = {
+
+        'elastic': {
+            'selector__score_func': [f_regression, mutual_info_regression],
+            'selector__percentile': [5, 15, 25, 35, 45, 55, 65, 75, 85, 95, 100],
+
+            'model__alpha': [5e-05, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 200],
+            'model__l1_ratio': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.],
+            'model__fit_intercept': [True, False]
+        },
+
+        'lasso': {
+            'selector__score_func': [f_regression, mutual_info_regression],
+            'selector__percentile': [10, 50, 100],
+
+            'model__alpha': [5e-05, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 200],
+            'model__fit_intercept': [True, False]
+        },
+
+        'ridge': {
+            'selector__score_func': [f_regression, mutual_info_regression],
+            'selector__percentile': [5, 15, 25, 35, 45, 55, 65, 75, 85, 95, 100],
+
+            'model__alpha': [5e-05, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 200],
+            'model__fit_intercept': [True, False]
+        },
+
+        'bayes_ridge': {
+            'selector__score_func': [f_regression, mutual_info_regression],
+            'selector__percentile': [5, 15, 25, 35, 45, 55, 65, 75, 85, 95, 100],
+
+            'model__alpha_1': [1e-7, 1e-6, 1e-5],
+            'model__alpha_2': [1e-7, 1e-6, 1e-5],
+            'model__lambda_1': [1e-7, 1e-6, 1e-5],
+            'model__lambda_2': [1e-7, 1e-6, 1e-5],
+            'model__fit_intercept': [True, False]
+        },
+
+        'lars': {
+            'selector__score_func': [f_regression, mutual_info_regression],
+            'selector__percentile': [5, 15, 25, 35, 45, 55, 65, 75, 85, 95, 100],
+
+            'model__fit_intercept': [True, False]
+        }
+    }
+
+    return models, parameters
+
+
+def run_predictor(save_to):
 
     RANDOM_STATE = 2401
 
@@ -45,38 +105,46 @@ def run_predictor():
     for i in range(signal_features.shape[1]):
         signal_features[numpy.where(signal_features[:, i] == -1), i] = numpy.median(signal_features[:, i])
 
-    # fit for each feature
-    for i in range(signal_features.shape[1]):
+    models, parameters = get_models_and_parameters(RANDOM_STATE)
+    models_names = sorted(list(models.keys()))  # being paranoid
+    results = []
 
-        X = numpy.delete(signal_features, i, axis=1)
-        y = signal_features[:, i]
+    # fit every feature
+    for i in tqdm(range(signal_features.shape[1])):
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=RANDOM_STATE)
+        feature_preds = []
+        # try every model
+        for name in tqdm(models_names):
 
-        pipeline = Pipeline([
-            ('scaler', MinMaxScaler()),
-            ('selector', SelectPercentile()),
-            ('model', ElasticNet(max_iter=5000, random_state=RANDOM_STATE))
-        ])
+            X = numpy.delete(signal_features, i, axis=1)
+            y = signal_features[:, i]
 
-        parameters = {
-            'selector__score_func': [f_regression, mutual_info_regression],
-            'selector__percentile': [x for x in range(5, 105, 10)],
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=RANDOM_STATE)
 
-            'model__alpha': [5e-05, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5.0, 10, 50.0, 100, 500.0, 1000],
-            'model__l1_ratio': [x / 10. for x in range(1, 11, 1)],
-            'model__fit_intercept': [True, False]
-        }
+            pipeline = Pipeline([
+                ('scaler', MinMaxScaler()),
+                ('selector', SelectPercentile()),
+                ('model', models[name])
+            ])
 
-        start = time.time()
-        print("Fitting models for {}...".format(signal_features_names[i]))
-        grid = GridSearchCV(pipeline, parameters, scoring='neg_median_absolute_error', cv=3, n_jobs=-1)
-        grid.fit(X_train, y_train)
+            start = time.time()
+            print("Fitting {} for {}...".format(name.upper(), signal_features_names[i]))
+            grid = GridSearchCV(pipeline, parameters[name], scoring='neg_median_absolute_error', cv=3, n_jobs=-1)
+            grid.fit(X_train, y_train)
 
-        print("Best parameter CV scores:", grid.best_score_)
-        print("Mean target value:", numpy.mean(y))
-        print("Parameters:", grid.best_params_)
-        print((time.time() - start) // 60, 'minutes elapsed\n')
+            relative_error_percent = round(-grid.best_score_ / numpy.median(y), 4) * 100
+            print("Best parameter CV scores:", grid.best_score_)
+            print("Median target value:", numpy.median(y))
+            print("Relative error: {}%".format(relative_error_percent ))
+            print("Parameters:", grid.best_params_)
+            print(int(time.time() - start), 'sec elapsed\n')
+
+            feature_preds.append(relative_error_percent)
+
+        results.append(feature_preds)
+
+    results = pandas.DataFrame(results, columns=signal_features_names, index=models_names)
+    results.to_csv(save_to + 'grid_search_results.csv')
 
 
 if __name__ == '__main__':
@@ -86,4 +154,5 @@ if __name__ == '__main__':
         warnings.simplefilter("ignore")
         os.environ["PYTHONWARNINGS"] = "ignore"
 
-    run_predictor()
+    save_to = '/Users/andreidm/ETH/projects/qc-based-normalization/res/'
+    run_predictor(save_to)
