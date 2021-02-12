@@ -269,10 +269,10 @@ if __name__ == '__main__':
         warnings.simplefilter("ignore")
         os.environ["PYTHONWARNINGS"] = "ignore"
 
-    save_to = '/Users/andreidm/ETH/projects/qc-based-normalization/res/'
+    save_to = '/Users/andreidm/ETH/projects/is-based-normalization/res/'
 
     # run_different_models(save_to)
     run_different_pipelines(save_to)
 
-    # results = pandas.read_csv('/Users/andreidm/ETH/projects/qc-based-normalization/res/grid_search_results.csv')
+    # results = pandas.read_csv('/Users/andreidm/ETH/projects/is-based-normalization/res/grid_search_results.csv')
     # print(results)
